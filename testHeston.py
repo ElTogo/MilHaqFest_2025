@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 from math import sqrt, exp
-y
+
 def heston_classical_mc(S0, K, T, r, v0, theta, kappa, eta, rho, 
                         T_days=182, Sbar=130.0, Tbar=50, Nsim=1000):
     """
