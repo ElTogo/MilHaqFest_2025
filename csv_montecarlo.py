@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pandas as pd
 from math import sqrt, pi, exp, log, erf
@@ -5,8 +7,9 @@ from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from qiskit import transpile
 
-def normal_cdf(x: float) -> float:
-    """Fonction de répartition N(0,1) via erf, sans SciPy."""
+MSE_ERROR_SUM = 0
+
+def normal_cdf(x):
     return 0.5 * (1.0 + erf(x / sqrt(2.0)))
 
 def black_scholes_analytical(S0, K, r, sigma, T, option_type="call"):
@@ -30,16 +33,16 @@ def black_scholes_analytical(S0, K, r, sigma, T, option_type="call"):
     return price
 
 def black_scholes_quantum_mc(
-    S0: float,
-    K: float,
-    r: float,
-    sigma: float,
-    T: float,
-    n_qubits: int = 4,
-    shots: int = 10_000,
-    option_type: str = "put",
-    n_std: float = 3.0,
-) -> float:
+    S0,
+    K,
+    r,
+    sigma,
+    T,
+    n_qubits = 4,
+    shots = 10_000,
+    option_type = "put",
+    n_std = 3.0,
+):
     """
     Monte Carlo "quantique" pour prix d'option européenne sous Black-Scholes.
     Version corrigée avec AerSimulator
@@ -175,31 +178,42 @@ def process_csv_and_predict(csv_file, output_file, method="analytical"):
     return df
 
 if __name__ == "__main__":
-    # Fichier d'entrée
-    input_file = r"C:\Users\Tompo\Downloads\template_track1_results.xlsx - template_Black_Scholes.csv"
-    
-    # Méthode 1: Formule analytique (RECOMMANDÉE - plus rapide et précise)
-    print("\n### MÉTHODE ANALYTIQUE BLACK-SCHOLES ###\n")
+    # Input/output data
+    input_file = r"input data.csv"
     output_analytical = "results_black_scholes_analytical.csv"
+
+    print("\n### MÉTHODE ANALYTIQUE BLACK-SCHOLES ###\n")
+    t = time.time()
     df_analytical = process_csv_and_predict(input_file, output_analytical, method="analytical")
-    
-    # Méthode 2: Monte Carlo Quantique (optionnel - plus lent, approximatif)
-    use_quantum = input("\nVoulez-vous aussi tester la méthode quantique? (y/n): ").lower() == 'y'
-    
-    if use_quantum:
-        print("\n### MÉTHODE MONTE CARLO QUANTIQUE ###\n")
-        output_quantum = "results_black_scholes_quantum.csv"
-        df_quantum = process_csv_and_predict(input_file, output_quantum, method="quantum")
-        
-        # Comparaison
-        print("\n" + "="*80)
-        print("COMPARAISON DES DEUX MÉTHODES")
-        print("="*80)
-        comparison = pd.DataFrame({
-            'Ligne': range(1, len(df_analytical) + 1),
-            'Put Analytique': df_analytical['Put Value Black-Scholes Model'],
-            'Put Quantique': df_quantum['Put Value Black-Scholes Model'],
-            'Call Analytique': df_analytical['Call Value Black-Scholes Model'],
-            'Call Quantique': df_quantum['Call Value Black-Scholes Model'],
-        })
-        print(comparison.to_string(index=False))
+    print(f"Analytical performance : {time.time() - t} seconds")
+
+    print("\n### MÉTHODE MONTE CARLO QUANTIQUE ###\n")
+    output_quantum = "results_black_scholes_quantum.csv"
+    t = time.time()
+    df_quantum = process_csv_and_predict(input_file, output_quantum, method="quantum")
+    print(f"Quantum performance : {time.time() - t} seconds")
+
+    # Comparaison
+    print("\n" + "="*80)
+    print("COMPARAISON DES DEUX MÉTHODES")
+    print("="*80)
+    comparison = pd.DataFrame({
+        'Ligne': range(1, len(df_analytical) + 1),
+        'Put Analytique': df_analytical['Put Value Black-Scholes Model'],
+        'Put Quantique': df_quantum['Put Value Black-Scholes Model'],
+        'Call Analytique': df_analytical['Call Value Black-Scholes Model'],
+        'Call Quantique': df_quantum['Call Value Black-Scholes Model'],
+    })
+    mse_error_put = 0
+    mse_error_call = 0
+    for i in range(len(df_analytical)):
+        mse_error_put += pow(df_analytical['Put Value Black-Scholes Model'][i]
+                         - df_quantum['Put Value Black-Scholes Model'][i], 2)
+        mse_error_call += pow(df_analytical['Call Value Black-Scholes Model'][i]
+                              - df_quantum['Call Value Black-Scholes Model'][i], 2)
+    mse_error_put = mse_error_put / len(df_analytical)
+    mse_error_call = mse_error_call / len(df_quantum)
+    print(f"MSE ERROR PUT : {mse_error_put}")
+    print(f"MSE ERROR CALL : {mse_error_call}")
+
+    print(comparison.to_string(index=False))
