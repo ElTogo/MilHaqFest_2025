@@ -6,8 +6,8 @@ from math import sqrt, pi, exp, log, erf
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from qiskit import transpile
-
-MSE_ERROR_SUM = 0
+from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2 as Sampler
+from qiskit.quantum_info import Statevector
 
 def normal_cdf(x):
     return 0.5 * (1.0 + erf(x / sqrt(2.0)))
@@ -44,20 +44,19 @@ def black_scholes_quantum_mc(
     n_std = 3.0,
 ):
     """
-    Monte Carlo "quantique" pour prix d'option européenne sous Black-Scholes.
-    Version corrigée avec AerSimulator
+    Monte Carlo "quantique" pour prix d'option  sous Black-Scholes.
     """
-    # 1) Paramètres de la loi normale de log S_T
+    # Paramètres de la loi normale de log S_T
     mean = log(S0) + (r - 0.5 * sigma**2) * T
     std = sigma * sqrt(T)
 
-    # 2) Discrétisation de log(S_T) sur [mean - n_std*std, mean + n_std*std]
+    # Discrétisation de log(S_T) sur [mean - n_std*std, mean + n_std*std]
     n_points = 2**n_qubits
     z_min = mean - n_std * std
     z_max = mean + n_std * std
     z_vals = np.linspace(z_min, z_max, n_points)
 
-    # 3) Probas approximatives sur la grille : densité log-normale
+    # Probas approximatives sur la grille : densité log-normale
     pdf_vals = (
         1.0
         / (std * sqrt(2.0 * pi))
@@ -65,23 +64,39 @@ def black_scholes_quantum_mc(
     )
     p_vals = pdf_vals / pdf_vals.sum()  # normalisation
 
-    # 4) Amplitudes quantiques = sqrt(probabilités)
+    # Amplitudes quantiques = sqrt(probabilités)
     amplitudes = np.sqrt(p_vals)
     amplitudes = amplitudes / np.linalg.norm(amplitudes)
 
-    # 5) Circuit quantique : initialise la superposition puis mesure
+    # Circuit quantique : initialise la superposition puis mesure
+
     qc = QuantumCircuit(n_qubits, n_qubits)
     qc.initialize(amplitudes, list(range(n_qubits)))
     qc.measure(list(range(n_qubits)), list(range(n_qubits)))
 
-    # 6) Simulation sur AerSimulator (nouvelle API)
-    simulator = AerSimulator()
-    transpiled_qc = transpile(qc, simulator)
-    job = simulator.run(transpiled_qc, shots=shots)
-    result = job.result()
-    counts = result.get_counts()
+    simul = False
+    if simul:
 
-    # 7) Calcul des payoffs associés à chaque z_i
+
+        service = QiskitRuntimeService(
+            channel="ibm_cloud",
+            token="lYOnhWfJTBF_iE01lIqetXyys4yFWCF-p0qgm1IDmoGC"
+        )
+        backend = service.backend("ibm_quebec")
+        tqc = transpile(qc, backend)
+        sampler = Sampler(backend)
+        job = sampler.run([tqc], shots=shots)
+        result = job.result()
+        quasi = result[0].data.quasi_distribution
+        counts = {k: int(v * shots) for k, v in quasi.items()}
+    else:
+        simulator = AerSimulator()
+        transpiled_qc = transpile(qc, simulator)
+        job = simulator.run(transpiled_qc, shots=shots)
+        result = job.result()
+        counts = result.get_counts()
+
+    # Calcul des payoffs associés à chaque z_i
     ST_vals = np.exp(z_vals)  # z_vals est déjà log(S_T)
 
     if option_type.lower() == "put":
@@ -91,7 +106,7 @@ def black_scholes_quantum_mc(
     else:
         raise ValueError("option_type doit être 'put' ou 'call'.")
 
-    # 8) Espérance du payoff en utilisant les résultats de mesure
+    # Espérance du payoff en utilisant les résultats de mesure
     total_shots = sum(counts.values())
     exp_payoff = 0.0
 
@@ -105,7 +120,7 @@ def black_scholes_quantum_mc(
 
     exp_payoff /= total_shots
 
-    # 9) Actualisation pour obtenir le prix
+    # Actualisation pour obtenir le prix
     price = exp(-r * T) * exp_payoff
     return float(price)
 
